@@ -1,0 +1,112 @@
+The goal is to implement sklearn pipeline that will allow fitting Naive Bayes
+classifer for dataset with mixed type features eg. mixture of Gaussian and
+Bernouli Bayes classifier.
+
+#+name: pipieline-outline
+| from                   |  to                    |
+|------------------------+------------------------|
+| preprocess             | select_numeric_columns |
+| select_numeric_columns | GaussianNB             |
+| preprocess             | select_binary_columns  |
+| select_numeric_columns | BernoulliNB            |
+| GaussianNB             | probability_multiplier |
+| BernoulliNB            | probability_multiplier |
+| probability_multiplier | final_classifier       |
+
+#+begin_src python
+from sklearn.pipeline import Pipeline, FeatureUnion
+from sklearn.naive_bayes import GaussianNB, ComplementNB, BernoulliNB
+from sklearn.preprocessing import FunctionTransformer
+from sklearn.model_selection import cross_val_score
+from sklearn.base import BaseEstimator, TransformerMixin
+from sklearn.compose import ColumnTransformer
+from sklearn.preprocessing import OrdinalEncoder, StandardScaler
+
+
+class RoundTransformer(BaseEstimator, TransformerMixin):
+    def __init__(self, decimals=0):
+        self.decimals = decimals
+        self.columns = None
+
+    def fit(self, X, y=None):
+        self.columns = X.columns
+        return self
+
+    def transform(self, X):
+        X_rounded = X.copy()
+        numeric_columns = X.select_dtypes(include=np.number).columns
+        X_rounded[numeric_columns] = X_rounded[numeric_columns].round(self.decimals)
+        return X_rounded
+
+    def get_feature_names_out(self, input_features=None):
+        if input_features is None:
+            return self.columns
+        else:
+            return input_features
+
+
+class ColumnSelector(BaseEstimator, TransformerMixin):
+    def __init__(self, columns):
+        self.columns = columns
+
+    def fit(self, X, y=None):
+        return self
+
+    def transform(self, X):
+        return X[self.columns]
+    
+
+
+preprocessor = ColumnTransformer(
+    transformers=[
+        ('yes_no_encoder', OrdinalEncoder(categories=[['no', 'yes'], ['no', 'yes'], ['no', 'yes'], ['no', 'yes']]), ['FAVC', 'family_history_with_overweight', 'SMOKE', 'SCC']),
+        ('CAEC_encoder', OrdinalEncoder(categories=[['no', 'Sometimes', 'Frequently', 'Always']]), ['CAEC']),
+        ('CALC_encoder', OrdinalEncoder(categories=[['no', 'Sometimes', 'Frequently']]), ['CALC']),
+        ('MTRANS_encoder', OrdinalEncoder(), ['MTRANS']),
+        ('Gender_encoder', OrdinalEncoder(), ['Gender']),
+        ('round_transformer', RoundTransformer(decimals=0), ['FCVC', 'NCP', 'CH2O', 'FAF', 'TUE']),
+        ('standard_scaler', StandardScaler(), num_cols),
+        
+    ],
+    remainder='passthrough'  # Pass through columns not specified
+)
+preprocessor.set_output(transform='pandas')
+
+# Create separate pipelines for each type of features
+numerical_pipeline = Pipeline([
+    ('preprocess', preprocessor),
+    ('selector', ColumnSelector(columns=['standard_scaler__Age',
+                                         'standard_scaler__Height',
+                                         'standard_scaler__Weight',
+                                         'standard_scaler__BMI'])),
+    ('classifier', GaussianNB())  # Gaussian Naive Bayes for numerical features
+])
+
+categorical_pipeline = Pipeline([
+    ('preprocess', preprocessor),
+    ('selector', ColumnSelector(columns=['CAEC_encoder__CAEC', 
+                                         'CALC_encoder__CALC',
+                                         'round_transformer__FCVC', 
+                                         'round_transformer__NCP',
+                                         'round_transformer__CH2O', 
+                                         'round_transformer__FAF',
+                                         'round_transformer__TUE',
+                                         'MTRANS_encoder__MTRANS',])),
+    ('classifier', ComplementNB())  # Complement Naive Bayes for categorical features
+])
+
+binary_pipeline = Pipeline([
+    ('preprocess', preprocessor),
+    ('selector', ColumnSelector(columns=['yes_no_encoder__FAVC',
+                                         'yes_no_encoder__family_history_with_overweight',
+                                         'yes_no_encoder__SMOKE', 
+                                         'yes_no_encoder__SCC',
+                                         'Gender_encoder__Gender'])),
+    ('classifier', BernoulliNB())  # Bernoulli Naive Bayes for binary features
+])
+
+
+# Perform 5-fold cross-validation
+cv_scores = cross_val_score(binary_pipeline, X, y, cv=5, scoring='accuracy')
+print("Cross-validated accuracy:", cv_scores.mean())
+#+end_src
