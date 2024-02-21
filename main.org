@@ -9,9 +9,12 @@ Bernouli Bayes classifier.
 | select_numeric_columns | GaussianNB             |
 | preprocess             | select_binary_columns  |
 | select_numeric_columns | BernoulliNB            |
-| GaussianNB             | probability_multiplier |
-| BernoulliNB            | probability_multiplier |
-| probability_multiplier | final_classifier       |
+| GaussianNB             | probability_combiner |
+| BernoulliNB            | probability_combiner |
+| probability_combiner | final_classifier       |
+
+~probability_combiner~ could be implemented using FeatureUnion, this would only
+require implementing ~transform~ methods to GaussianNB and BernoulliNB.
 
 #+begin_src python
 from sklearn.pipeline import Pipeline, FeatureUnion
